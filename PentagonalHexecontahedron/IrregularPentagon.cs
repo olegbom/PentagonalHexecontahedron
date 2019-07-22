@@ -54,7 +54,7 @@ namespace PentagonalHexecontahedron
 
         public static ushort[] CreateIndices()
         {
-            return new ushort[] {4, 0, 3, 1, 2};
+            return new ushort[] {2, 3, 1, 4, 0};
         }
 
     }

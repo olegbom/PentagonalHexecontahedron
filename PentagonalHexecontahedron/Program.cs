@@ -2,6 +2,7 @@
 using System.Numerics;
 using System.Text;
 using PentagonalHexecontahedron.Properties;
+
 using SharpDX.Text;
 using Veldrid;
 using Veldrid.Sdl2;
@@ -15,35 +16,7 @@ namespace PentagonalHexecontahedron
 {
     class Program
     {
-       
-
-        private static string VertexCode = @"
-#version 450
-
-layout(location = 0) in vec2 Position;
-layout(location = 1) in vec4 Color;
-
-layout(location = 0) out vec4 fsin_Color;
-
-void main()
-{
-    gl_Position = vec4(Position, 0, 1);
-    fsin_Color = Color;
-}";
-
-        private static string FragmentCode = @"
-#version 450 
-
-layout(location = 0) in vec4 fsin_Color;
-layout(location = 0) out vec4 fsout_Color;
-
-void main()
-{
-    fsout_Color = fsin_Color;
-}";
-
-
-
+        
         private static GraphicsDevice _graphicsDevice;
         private static CommandList _commandList;
         private static DeviceBuffer _vertexBuffer;
@@ -56,26 +29,43 @@ void main()
         private static Sdl2Window _window;
 
 
+
         private static bool _isResized;
+        private static float rotate;
+
         static void Main(string[] args)
         {
+            
             WindowCreateInfo windowCi = new WindowCreateInfo()
             {
-                X = 100,
-                Y = 100,
-                WindowWidth = 960,
-                WindowHeight = 540,
+                X = 0,
+                Y = 0,
+                WindowWidth = 1920,
+                WindowHeight = 1080,
                 WindowTitle= "Pentagonal Hexecontahedron",
+                WindowInitialState = WindowState.FullScreen
             };
             _window = VeldridStartup.CreateWindow(ref windowCi);
             _window.Resized += () => { _isResized = true; };
+            _window.KeyUp += keyArg =>
+            {
+                if (keyArg.Key == Key.Escape)
+                {
+                    _window.Close();
+                }
+            };
             _graphicsDevice = VeldridStartup.CreateGraphicsDevice(_window);
 
             CreateResources();
 
             while (_window.Exists)
             {
-                _window.PumpEvents();
+                InputSnapshot snapshot = _window.PumpEvents();
+                if (snapshot.IsMouseDown(MouseButton.Left))
+                {
+                    rotate += 0.001f;
+                    ViewProjectionUpdate();
+                }
                 Draw();
             }
 
@@ -99,7 +89,7 @@ void main()
                 new BufferDescription(IrregularPentagon.VerticesCount * VertexPositionColor.SizeInBytes,
                     BufferUsage.VertexBuffer));
             _indexBuffer = factory.CreateBuffer(
-                new BufferDescription(IrregularPentagon.VerticesCount * sizeof(ushort), 
+                new BufferDescription(IrregularPentagon.IndicesCount * sizeof(ushort), 
                     BufferUsage.IndexBuffer));
             _projMatrixBuffer = factory.CreateBuffer(
                 new BufferDescription(sizeof(float)*4*4, 
@@ -108,11 +98,8 @@ void main()
 
             _graphicsDevice.UpdateBuffer(_vertexBuffer, 0, quadVertices);
             _graphicsDevice.UpdateBuffer(_indexBuffer, 0, quadIndices);
-            
-            _graphicsDevice.UpdateBuffer(_projMatrixBuffer, 0, 
-                Matrix4x4.CreateOrthographicOffCenter(-2, 2, -2, 2, -1, 1));
 
-            ;
+            ViewProjectionUpdate();
 
             VertexLayoutDescription vertexLayout = new VertexLayoutDescription(
                 new VertexElementDescription("Position", VertexElementSemantic.TextureCoordinate,
@@ -148,7 +135,8 @@ void main()
                 PrimitiveTopology = PrimitiveTopology.TriangleStrip,
                 ResourceLayouts = new []{_layout},
                 ShaderSet = new ShaderSetDescription(new[] {vertexLayout}, _shaders),
-                Outputs =  _graphicsDevice.SwapchainFramebuffer.OutputDescription
+                Outputs =  _graphicsDevice.SwapchainFramebuffer.OutputDescription,
+                
             };
             _pipeline = factory.CreateGraphicsPipeline(pipelineDescription);
 
@@ -159,6 +147,16 @@ void main()
 
         }
 
+        private static void ViewProjectionUpdate()
+        {
+            float aspectRatio = _window.Width / (float)_window.Height;
+
+            var matrix = aspectRatio > 1 
+                ? Matrix4x4.CreateOrthographicOffCenter(-2 * aspectRatio, 2 * aspectRatio, -2, 2, -1, 1) 
+                : Matrix4x4.CreateOrthographicOffCenter(-2, 2, -2 / aspectRatio, 2 / aspectRatio, -1, 1);
+            _graphicsDevice.UpdateBuffer(_projMatrixBuffer, 0, Matrix4x4.CreateRotationZ(rotate) * matrix );
+        }
+
         private static void Draw()
         {
 
@@ -167,14 +165,8 @@ void main()
                 _isResized = false;
 
                 _graphicsDevice.ResizeMainWindow((uint)_window.Width, (uint)_window.Height);
-               /* _scene.Camera.WindowResized(width, height);
-                _resizeHandled?.Invoke(width, height);
-                CommandList cl = _gd.ResourceFactory.CreateCommandList();
-                cl.Begin();
-                _sc.RecreateWindowSizedResources(_gd, cl);
-                cl.End();
-                _gd.SubmitCommands(cl);
-                cl.Dispose();*/
+                ViewProjectionUpdate();
+
             }
 
             _commandList.Begin();
@@ -185,7 +177,7 @@ void main()
             _commandList.SetPipeline(_pipeline);
             _commandList.SetGraphicsResourceSet(0, _mainResourceSet);
 
-            _commandList.DrawIndexed(4,1,0,0,0);
+            _commandList.DrawIndexed(IrregularPentagon.IndicesCount, 1,0,0,0);
 
             _commandList.End();
 
