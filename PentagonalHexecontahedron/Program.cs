@@ -44,6 +44,14 @@ namespace PentagonalHexecontahedron
                 WindowTitle= "Pentagonal Hexecontahedron",
                 WindowInitialState = WindowState.Normal
             };
+            GraphicsDeviceOptions options = new GraphicsDeviceOptions(
+                debug: false,
+                swapchainDepthFormat: PixelFormat.R16_UNorm,
+                syncToVerticalBlank: true,
+                resourceBindingModel: ResourceBindingModel.Improved,
+                preferDepthRangeZeroToOne: true,
+                preferStandardClipSpaceYDirection: true);
+
             _window = VeldridStartup.CreateWindow(ref windowCi);
             _window.Resized += () => { _isResized = true; };
             
@@ -54,7 +62,7 @@ namespace PentagonalHexecontahedron
                     _window.Close();
                 }
             };
-            _graphicsDevice = VeldridStartup.CreateGraphicsDevice(_window);
+            _graphicsDevice = VeldridStartup.CreateGraphicsDevice(_window, options);
             
             CreateResources();
 
@@ -63,7 +71,7 @@ namespace PentagonalHexecontahedron
                 InputSnapshot snapshot = _window.PumpEvents();
                 if (snapshot.IsMouseDown(MouseButton.Left))
                 {
-                    _rotate += 0.001f;
+                    _rotate += 0.01f;
                     ViewProjectionUpdate();
                 }
                 Draw();
@@ -120,12 +128,12 @@ namespace PentagonalHexecontahedron
             _shaders = factory.CreateFromSpirv(vertexShaderDesc, fragmentShaderDesc);
 
 
-            VertexLayoutDescription vertexLayoutPerInstance = new VertexLayoutDescription(
+            VertexLayoutDescription vertexLayoutPerInstance = new VertexLayoutDescription(20, 1,
                 new VertexElementDescription("InstanceSphericalCoordinates", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
                 new VertexElementDescription("InstanceRotation", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float1),
                 new VertexElementDescription("InstanceScale", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float1));
 
-            vertexLayoutPerInstance.InstanceStepRate = 1;
+           // vertexLayoutPerInstance.InstanceStepRate = 3;
 
             _instanceVB = factory.CreateBuffer(new BufferDescription(InstanceInfo.Size * _instanceCount, BufferUsage.VertexBuffer));
             InstanceInfo[] infos = new InstanceInfo[_instanceCount];
@@ -145,7 +153,7 @@ namespace PentagonalHexecontahedron
 
             GraphicsPipelineDescription pipelineDescription = new GraphicsPipelineDescription
             {
-                BlendState = BlendStateDescription.SingleOverrideBlend,
+                BlendState = BlendStateDescription.SingleAlphaBlend,
                 DepthStencilState = new DepthStencilStateDescription(
                     true,
                     true,
@@ -159,7 +167,7 @@ namespace PentagonalHexecontahedron
                 PrimitiveTopology = PrimitiveTopology.TriangleStrip,
                 ResourceLayouts = new []{_layout},
                 ShaderSet = new ShaderSetDescription(new[] {vertexLayout, vertexLayoutPerInstance}, _shaders),
-                Outputs =  _graphicsDevice.SwapchainFramebuffer.OutputDescription,
+                Outputs = _graphicsDevice.MainSwapchain.Framebuffer.OutputDescription,
                 
             };
             _pipeline = factory.CreateGraphicsPipeline(pipelineDescription);
@@ -200,9 +208,9 @@ namespace PentagonalHexecontahedron
 
             _commandList.Begin();
             _graphicsDevice.UpdateBuffer(_modelMatrixBuffer, 0, Matrix4x4.Identity);
-            _commandList.SetFramebuffer(_graphicsDevice.SwapchainFramebuffer);
+            _commandList.SetFramebuffer(_graphicsDevice.MainSwapchain.Framebuffer);
             _commandList.ClearColorTarget(0, new RgbaFloat(239/255.0f, 211/255.0f, 169/255.0f, 1.0f));
-            //_commandList.ClearDepthStencil(1f);
+            _commandList.ClearDepthStencil(1f);
             
           
                 
@@ -212,12 +220,15 @@ namespace PentagonalHexecontahedron
             _commandList.SetIndexBuffer(_indexBuffer, IndexFormat.UInt16);
             _commandList.SetVertexBuffer(1, _instanceVB);
 
-            _commandList.DrawIndexed(IrregularPentagon.IndicesCount, _instanceCount,0,0, 0);
-            
-            _commandList.End();
+            _commandList.DrawIndexed(IrregularPentagon.IndicesCount, 1,0,0, 1);
+
             
 
+            //_commandList.DrawIndexed(IrregularPentagon.IndicesCount, 1, 0, 0, 1);
+            _commandList.End();
+
             _graphicsDevice.SubmitCommands(_commandList);
+            _graphicsDevice.WaitForIdle();
             _graphicsDevice.SwapBuffers();
         }
 
