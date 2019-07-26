@@ -1,16 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Numerics;
-using System.Text;
 using PentagonalHexecontahedron.Properties;
-
-using SharpDX.Text;
 using Veldrid;
 using Veldrid.Sdl2;
 using Veldrid.SPIRV;
 using Veldrid.StartupUtilities;
-using Vulkan;
-using Vulkan.Xlib;
-using Encoding = System.Text.Encoding;
 
 namespace PentagonalHexecontahedron
 {
@@ -22,31 +17,36 @@ namespace PentagonalHexecontahedron
         private static DeviceBuffer _vertexBuffer;
         private static DeviceBuffer _indexBuffer;
         private static DeviceBuffer _projMatrixBuffer;
+        private static DeviceBuffer _modelMatrixBuffer;
+        private static DeviceBuffer _instanceVB;
         private static ResourceLayout _layout;
         private static ResourceSet _mainResourceSet;
+
         private static Shader[] _shaders;
         private static Pipeline _pipeline;
         private static Sdl2Window _window;
 
-
+        private static List<IrregularPentagon> _pentagons = new List<IrregularPentagon>();
+        private static uint _instanceCount;
 
         private static bool _isResized;
-        private static float rotate;
+        private static float _rotate;
 
         static void Main(string[] args)
         {
             
             WindowCreateInfo windowCi = new WindowCreateInfo()
             {
-                X = 0,
-                Y = 0,
-                WindowWidth = 1920,
-                WindowHeight = 1080,
+                X = 100,
+                Y = 100,
+                WindowWidth = 800,
+                WindowHeight = 600,
                 WindowTitle= "Pentagonal Hexecontahedron",
-                WindowInitialState = WindowState.FullScreen
+                WindowInitialState = WindowState.Normal
             };
             _window = VeldridStartup.CreateWindow(ref windowCi);
             _window.Resized += () => { _isResized = true; };
+            
             _window.KeyUp += keyArg =>
             {
                 if (keyArg.Key == Key.Escape)
@@ -55,7 +55,7 @@ namespace PentagonalHexecontahedron
                 }
             };
             _graphicsDevice = VeldridStartup.CreateGraphicsDevice(_window);
-
+            
             CreateResources();
 
             while (_window.Exists)
@@ -63,7 +63,7 @@ namespace PentagonalHexecontahedron
                 InputSnapshot snapshot = _window.PumpEvents();
                 if (snapshot.IsMouseDown(MouseButton.Left))
                 {
-                    rotate += 0.001f;
+                    _rotate += 0.001f;
                     ViewProjectionUpdate();
                 }
                 Draw();
@@ -74,17 +74,10 @@ namespace PentagonalHexecontahedron
 
         private static void CreateResources()
         {
+            _instanceCount = 5;
+
             ResourceFactory factory = _graphicsDevice.ResourceFactory;
-            VertexPositionColor[] quadVertices = IrregularPentagon.CreateVertices();/*
-            {
-                new VertexPositionColor(new Vector2(-.75f, .75f), RgbaFloat.Blue),
-                new VertexPositionColor(new Vector2(.75f, .75f), RgbaFloat.Green),
-                new VertexPositionColor(new Vector2(-.75f, -.75f), RgbaFloat.Red),
-                new VertexPositionColor(new Vector2(.75f, -.75f), RgbaFloat.Yellow),
-            };*/
-
-            ushort[] quadIndices = IrregularPentagon.CreateIndices();// { 0, 1, 2, 3 };
-
+          
             _vertexBuffer = factory.CreateBuffer(
                 new BufferDescription(IrregularPentagon.VerticesCount * VertexPositionColor.SizeInBytes,
                     BufferUsage.VertexBuffer));
@@ -94,10 +87,15 @@ namespace PentagonalHexecontahedron
             _projMatrixBuffer = factory.CreateBuffer(
                 new BufferDescription(sizeof(float)*4*4, 
                 BufferUsage.UniformBuffer | BufferUsage.Dynamic));
-            _projMatrixBuffer.Name = "ImGui.NET Projection Buffer";
+            _projMatrixBuffer.Name = "Projection Buffer";
+            _modelMatrixBuffer = factory.CreateBuffer(
+                new BufferDescription(sizeof(float) * 4 * 4,
+                    BufferUsage.UniformBuffer | BufferUsage.Dynamic));
+            _modelMatrixBuffer.Name = "Model Buffer";
 
-            _graphicsDevice.UpdateBuffer(_vertexBuffer, 0, quadVertices);
-            _graphicsDevice.UpdateBuffer(_indexBuffer, 0, quadIndices);
+
+            _graphicsDevice.UpdateBuffer(_vertexBuffer, 0, IrregularPentagon.Vertices);
+            _graphicsDevice.UpdateBuffer(_indexBuffer, 0, IrregularPentagon.Indices);
 
             ViewProjectionUpdate();
 
@@ -107,8 +105,10 @@ namespace PentagonalHexecontahedron
                 new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate,
                     VertexElementFormat.Float4));
 
-            _layout = factory.CreateResourceLayout(new ResourceLayoutDescription(
-                new ResourceLayoutElementDescription("ProjectionMatrixBuffer", ResourceKind.UniformBuffer, ShaderStages.Vertex)));
+            _layout = factory.CreateResourceLayout(
+                new ResourceLayoutDescription(
+                    new ResourceLayoutElementDescription("ViewProjectionMatrix", ResourceKind.UniformBuffer, ShaderStages.Vertex),
+                    new ResourceLayoutElementDescription("ModelMatrix", ResourceKind.UniformBuffer, ShaderStages.Vertex)));
 
 
             ShaderDescription vertexShaderDesc = new ShaderDescription(ShaderStages.Vertex,
@@ -118,6 +118,30 @@ namespace PentagonalHexecontahedron
                 Resources.FragmentShader,
                 "main");
             _shaders = factory.CreateFromSpirv(vertexShaderDesc, fragmentShaderDesc);
+
+
+            VertexLayoutDescription vertexLayoutPerInstance = new VertexLayoutDescription(
+                new VertexElementDescription("InstanceSphericalCoordinates", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
+                new VertexElementDescription("InstanceRotation", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float1),
+                new VertexElementDescription("InstanceScale", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float1));
+
+            vertexLayoutPerInstance.InstanceStepRate = 1;
+
+            _instanceVB = factory.CreateBuffer(new BufferDescription(InstanceInfo.Size * _instanceCount, BufferUsage.VertexBuffer));
+            InstanceInfo[] infos = new InstanceInfo[_instanceCount];
+
+            Random r = new Random();
+            
+            for (uint i = 0; i < _instanceCount; i++)
+            {
+                float angle = (float)(r.NextDouble() * Math.PI * 2);
+                infos[i] = new InstanceInfo(
+                    new Vector3(0,0,0),
+                     i/0.1f,
+                    1);
+            }
+
+            _graphicsDevice.UpdateBuffer(_instanceVB, 0, infos);
 
             GraphicsPipelineDescription pipelineDescription = new GraphicsPipelineDescription
             {
@@ -134,16 +158,21 @@ namespace PentagonalHexecontahedron
                     false),
                 PrimitiveTopology = PrimitiveTopology.TriangleStrip,
                 ResourceLayouts = new []{_layout},
-                ShaderSet = new ShaderSetDescription(new[] {vertexLayout}, _shaders),
+                ShaderSet = new ShaderSetDescription(new[] {vertexLayout, vertexLayoutPerInstance}, _shaders),
                 Outputs =  _graphicsDevice.SwapchainFramebuffer.OutputDescription,
                 
             };
             _pipeline = factory.CreateGraphicsPipeline(pipelineDescription);
 
             _mainResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_layout,
-                _projMatrixBuffer));
+                _projMatrixBuffer, _modelMatrixBuffer));
 
             _commandList = factory.CreateCommandList();
+
+            var firstPentagon = new IrregularPentagon();
+            var secondPentagon = new IrregularPentagon(firstPentagon, 0);
+            _pentagons.Add(firstPentagon);
+            _pentagons.Add(secondPentagon);
 
         }
 
@@ -154,7 +183,7 @@ namespace PentagonalHexecontahedron
             var matrix = aspectRatio > 1 
                 ? Matrix4x4.CreateOrthographicOffCenter(-2 * aspectRatio, 2 * aspectRatio, -2, 2, -1, 1) 
                 : Matrix4x4.CreateOrthographicOffCenter(-2, 2, -2 / aspectRatio, 2 / aspectRatio, -1, 1);
-            _graphicsDevice.UpdateBuffer(_projMatrixBuffer, 0, Matrix4x4.CreateRotationZ(rotate) * matrix );
+            _graphicsDevice.UpdateBuffer(_projMatrixBuffer, 0, Matrix4x4.CreateRotationZ(_rotate) * matrix );
         }
 
         private static void Draw()
@@ -170,16 +199,23 @@ namespace PentagonalHexecontahedron
             }
 
             _commandList.Begin();
+            _graphicsDevice.UpdateBuffer(_modelMatrixBuffer, 0, Matrix4x4.Identity);
             _commandList.SetFramebuffer(_graphicsDevice.SwapchainFramebuffer);
-            _commandList.ClearColorTarget(0, RgbaFloat.Black);
-            _commandList.SetVertexBuffer(0, _vertexBuffer);
-            _commandList.SetIndexBuffer(_indexBuffer, IndexFormat.UInt16);
+            _commandList.ClearColorTarget(0, new RgbaFloat(239/255.0f, 211/255.0f, 169/255.0f, 1.0f));
+            //_commandList.ClearDepthStencil(1f);
+            
+          
+                
             _commandList.SetPipeline(_pipeline);
             _commandList.SetGraphicsResourceSet(0, _mainResourceSet);
+            _commandList.SetVertexBuffer(0, _vertexBuffer);
+            _commandList.SetIndexBuffer(_indexBuffer, IndexFormat.UInt16);
+            _commandList.SetVertexBuffer(1, _instanceVB);
 
-            _commandList.DrawIndexed(IrregularPentagon.IndicesCount, 1,0,0,0);
-
+            _commandList.DrawIndexed(IrregularPentagon.IndicesCount, _instanceCount,0,0, 0);
+            
             _commandList.End();
+            
 
             _graphicsDevice.SubmitCommands(_commandList);
             _graphicsDevice.SwapBuffers();
@@ -188,9 +224,9 @@ namespace PentagonalHexecontahedron
         private static void DisposeResources()
         {
             _pipeline.Dispose();
-            for (int i = 0; i < _shaders.Length; i++)
+            foreach (var s in _shaders)
             {
-                _shaders[i].Dispose();
+                s.Dispose();
             }
             _commandList.Dispose();
             _vertexBuffer.Dispose();

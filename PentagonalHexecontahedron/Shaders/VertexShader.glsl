@@ -1,19 +1,32 @@
 #version 450
+#extension GL_ARB_separate_shader_objects : enable
+#extension GL_ARB_shading_language_420pack : enable
 
 layout(location = 0) in vec2 Position;
 layout(location = 1) in vec4 Color;
+layout(location = 2) in vec3 InstanceSphericalCoordinates;
+layout(location = 3) in float InstanceRotation;
+layout(location = 4) in float InstanceScale;
+
 
 layout(location = 0) out vec4 fsin_Color;
 
 
-uniform ViewProjectionMatrix
+layout(set = 0, binding = 0) uniform ViewProjectionMatrix
 {
     mat4 viewProjection;
+};
+
+layout(set = 0, binding = 1) uniform ModelMatrix
+{
+	mat4 modelMatrix;
 };
 
 
 void main()
 {
-    gl_Position = viewProjection * vec4(Position, 0, 1);
+    
+    vec3 worldPosition = vec3(Position, 0) + vec3(0, InstanceRotation, 0);
+    gl_Position =  viewProjection * modelMatrix * vec4(worldPosition, 1);
     fsin_Color = Color;
 }
