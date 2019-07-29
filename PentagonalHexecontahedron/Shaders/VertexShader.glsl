@@ -4,9 +4,8 @@
 
 layout(location = 0) in vec2 Position;
 layout(location = 1) in vec4 Color;
-layout(location = 2) in vec3 InstanceSphericalCoordinates;
-layout(location = 3) in float InstanceRotation;
-layout(location = 4) in float InstanceScale;
+layout(location = 2) in float InstanceCoord;
+
 
 
 layout(location = 0) out vec4 fsin_Color;
@@ -26,7 +25,7 @@ layout(set = 0, binding = 1) uniform ModelMatrix
 void main()
 {
     
-    vec3 worldPosition = vec3(Position, 0) + vec3(0, InstanceRotation, 0);
+    vec3 worldPosition = vec3(Position, 0) + vec3(0, InstanceCoord, 0);
     gl_Position =  viewProjection * modelMatrix * vec4(worldPosition, 1);
-    fsin_Color = Color;
+    fsin_Color = Color + vec4(InstanceCoord, 0,0,0);
 }

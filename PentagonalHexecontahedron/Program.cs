@@ -45,12 +45,12 @@ namespace PentagonalHexecontahedron
                 WindowInitialState = WindowState.Normal
             };
             GraphicsDeviceOptions options = new GraphicsDeviceOptions(
-                debug: false,
-                swapchainDepthFormat: PixelFormat.R16_UNorm,
-                syncToVerticalBlank: true,
-                resourceBindingModel: ResourceBindingModel.Improved,
-                preferDepthRangeZeroToOne: true,
-                preferStandardClipSpaceYDirection: true);
+                 true,
+                 PixelFormat.R16_UNorm,
+                 true,
+                 ResourceBindingModel.Improved,
+                 true,
+                 true);
 
             _window = VeldridStartup.CreateWindow(ref windowCi);
             _window.Resized += () => { _isResized = true; };
@@ -62,7 +62,7 @@ namespace PentagonalHexecontahedron
                     _window.Close();
                 }
             };
-            _graphicsDevice = VeldridStartup.CreateGraphicsDevice(_window, options);
+            _graphicsDevice = VeldridStartup.CreateGraphicsDevice(_window, options, GraphicsBackend.Vulkan);
             
             CreateResources();
 
@@ -128,25 +128,18 @@ namespace PentagonalHexecontahedron
             _shaders = factory.CreateFromSpirv(vertexShaderDesc, fragmentShaderDesc);
 
 
-            VertexLayoutDescription vertexLayoutPerInstance = new VertexLayoutDescription(20, 1,
-                new VertexElementDescription("InstanceSphericalCoordinates", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
-                new VertexElementDescription("InstanceRotation", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float1),
-                new VertexElementDescription("InstanceScale", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float1));
+            VertexLayoutDescription vertexLayoutPerInstance = new VertexLayoutDescription(
+                new VertexElementDescription("InstanceCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float1));
 
-           // vertexLayoutPerInstance.InstanceStepRate = 3;
+            vertexLayoutPerInstance.InstanceStepRate = 1;
 
-            _instanceVB = factory.CreateBuffer(new BufferDescription(InstanceInfo.Size * _instanceCount, BufferUsage.VertexBuffer));
-            InstanceInfo[] infos = new InstanceInfo[_instanceCount];
+            _instanceVB = factory.CreateBuffer(new BufferDescription(sizeof(float) * _instanceCount, BufferUsage.VertexBuffer));
+            float[] infos = new float[_instanceCount];
 
-            Random r = new Random();
-            
+          
             for (uint i = 0; i < _instanceCount; i++)
             {
-                float angle = (float)(r.NextDouble() * Math.PI * 2);
-                infos[i] = new InstanceInfo(
-                    new Vector3(0,0,0),
-                     i/0.1f,
-                    1);
+                infos[i] = i/0.1f;
             }
 
             _graphicsDevice.UpdateBuffer(_instanceVB, 0, infos);
@@ -220,16 +213,22 @@ namespace PentagonalHexecontahedron
             _commandList.SetIndexBuffer(_indexBuffer, IndexFormat.UInt16);
             _commandList.SetVertexBuffer(1, _instanceVB);
 
-            _commandList.DrawIndexed(IrregularPentagon.IndicesCount, 1,0,0, 1);
-
+            _commandList.DrawIndexed(IrregularPentagon.IndicesCount, _instanceCount, 0, 0, 0);
+          
             
+            //_commandList.SetGraphicsResourceSet(0, _mainResourceSet);
+            //_commandList.DrawIndexed(IrregularPentagon.IndicesCount, _instanceCount, 0, 0, 0);
+
 
             //_commandList.DrawIndexed(IrregularPentagon.IndicesCount, 1, 0, 0, 1);
             _commandList.End();
-
+            
             _graphicsDevice.SubmitCommands(_commandList);
+            
             _graphicsDevice.WaitForIdle();
+            
             _graphicsDevice.SwapBuffers();
+          
         }
 
         private static void DisposeResources()
